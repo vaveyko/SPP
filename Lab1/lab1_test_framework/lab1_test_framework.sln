@@ -1,13 +1,20 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
-VisualStudioVersion = 17.14.36429.23 d17.14
+VisualStudioVersion = 17.14.36429.23
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "lab1_test_framework", "lab1_test_framework.csproj", "{6C031D44-56D3-47DD-BB64-828C72436A49}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "application_test", "..\application_test\application_test.csproj", "{9C14E810-4DAB-4D14-B637-B083672E91B3}"
+	ProjectSection(ProjectDependencies) = postProject
+		{1589276D-7074-49F2-80D6-03F70154AA37} = {1589276D-7074-49F2-80D6-03F70154AA37}
+		{6C031D44-56D3-47DD-BB64-828C72436A49} = {6C031D44-56D3-47DD-BB64-828C72436A49}
+	EndProjectSection
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "application", "..\application\application.csproj", "{1589276D-7074-49F2-80D6-03F70154AA37}"
+	ProjectSection(ProjectDependencies) = postProject
+		{6C031D44-56D3-47DD-BB64-828C72436A49} = {6C031D44-56D3-47DD-BB64-828C72436A49}
+	EndProjectSection
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "test_run", "..\test_run\test_run.csproj", "{852E7483-85B5-40A0-AFA1-A2C6854B1874}"
 EndProject

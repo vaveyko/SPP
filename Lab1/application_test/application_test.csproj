@@ -6,4 +6,9 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\application\application.csproj" />
+    <ProjectReference Include="..\lab1_test_framework\lab1_test_framework.csproj" />
+  </ItemGroup>
+
 </Project>
