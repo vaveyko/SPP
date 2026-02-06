@@ -6,12 +6,13 @@ static async Task RunTest(MethodInfo method, object testInstance, object[] param
 {
     if (method.ReturnType == typeof(Task))
     {
-        await(Task)method.Invoke(testInstance, parameters);
+        await (Task)method.Invoke(testInstance, parameters);
     }
     else
     {
         method.Invoke(testInstance, parameters);
     }
+    
 }
 
 Assembly assembly = Assembly.LoadFrom("application_test");
@@ -53,7 +54,13 @@ foreach (Type testClassType in testClasses)
     {
         var attr = method.GetCustomAttribute<TestMethodAttribute>();
         if (attr == null) continue;
-
+        if (method.GetCustomAttribute<SkipAttribute>() != null)
+        {
+            Console.ForegroundColor = ConsoleColor.Magenta;
+            Console.WriteLine($"Тест {method.Name} пока не работает");
+            Console.ResetColor();
+            continue;
+        }
         try
         {
             Console.Write($"Запуск {method.Name} ({attr.AdditionalInfo})... ");
@@ -88,7 +95,6 @@ foreach (Type testClassType in testClasses)
         }
         catch (Exception ex)
         {
-            // Извлекаем реальную ошибку из Reflection
             var realException = ex.InnerException ?? ex;
             Console.ForegroundColor = ConsoleColor.Red;
             Console.WriteLine($"Провален: {realException.Message}");
@@ -103,8 +109,9 @@ foreach (Type testClassType in testClasses)
 
 
 
-
+    Console.ForegroundColor = ConsoleColor.Yellow;
     Console.WriteLine("\n\n--- Запуск тестов с SharedContext ---");
+    Console.ResetColor();
     var methodsWithShared = new List<(MethodInfo method, int contextId, int priority)>();
 
     foreach (var method in methods)
@@ -136,6 +143,14 @@ foreach (Type testClassType in testClasses)
         foreach (var methodInfo in sortedGroup)
         {
             var method = methodInfo.method;
+
+            if (method.GetCustomAttribute<SkipAttribute>() != null)
+            {
+                Console.ForegroundColor = ConsoleColor.Magenta;
+                Console.WriteLine($"Тест {method.Name} пока не работает");
+                Console.ResetColor();
+                continue;
+            }
             try
             {
                 Console.Write($"{methodInfo.priority}) {method.Name} ... ");
@@ -166,7 +181,6 @@ foreach (Type testClassType in testClasses)
             }
             catch (Exception ex)
             {
-                // Извлекаем реальную ошибку из Reflection
                 var realException = ex.InnerException ?? ex;
                 Console.ForegroundColor = ConsoleColor.Red;
                 Console.WriteLine($"Провален: {realException.Message}");

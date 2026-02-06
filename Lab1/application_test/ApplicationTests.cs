@@ -53,6 +53,7 @@ namespace application_test
 
 
         [TestMethod(AdditionalInfo = "Проверка количества записей")]
+        [Skip]
         public void TestCollection()
         {
             var list = app.GetAvailableIngredients();

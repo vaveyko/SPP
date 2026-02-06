@@ -37,4 +37,6 @@
 
     [AttributeUsage(AttributeTargets.Class)]
     public class TestClassAttribute() : System.Attribute { }
+
+    public class SkipAttribute() : System.Attribute { }
 }

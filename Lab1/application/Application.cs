@@ -80,7 +80,7 @@
 
         public async Task<int> GetIngredientCaloriesAsync(string name)
         {
-            await Task.Delay(10); // Имитация задержки
+            await Task.Delay(10); // Искусственная задержка
             if (_ingredientCalories.ContainsKey(name.ToLower()))
                 return (int)_ingredientCalories[name.ToLower()];
             return 0;
