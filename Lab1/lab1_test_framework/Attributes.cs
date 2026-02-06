@@ -34,4 +34,7 @@
         public string AdditionalInfo { get; set; } = string.Empty;
 
     }
+
+    [AttributeUsage(AttributeTargets.Class)]
+    public class TestClassAttribute() : System.Attribute { }
 }

@@ -3,6 +3,7 @@ using lab1_test_framework;
 
 namespace application_test
 {
+    [TestClass]
     public class ApplicationTests
     {
         RecipeCalorieCalculator app;
