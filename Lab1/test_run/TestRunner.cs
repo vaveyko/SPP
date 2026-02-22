@@ -1,196 +1,214 @@
 ﻿using application_test;
 using lab1_test_framework;
+using System.Diagnostics;
 using System.Reflection;
 
-static async Task RunTest(MethodInfo method, object testInstance, object[] parameters)
+
+namespace test_runner
 {
-    if (method.ReturnType == typeof(Task))
+    public class TestWorkItem
     {
-        await (Task)method.Invoke(testInstance, parameters);
+        public MethodInfo Method { get; set; }
+        public Type ClassType { get; set; }
+        public MethodInfo StartMethod { get; set; }
+        public MethodInfo FinishMethod { get; set; }
+        public TestMethodAttribute Config { get; set; }
     }
-    else
+    class Program
     {
-        method.Invoke(testInstance, parameters);
-    }
-    
-}
+        private static int MaxParallelism = 4;
+        private static SemaphoreSlim semaphore = new SemaphoreSlim(MaxParallelism);
+        private static object consoleLock = new object();
 
-Assembly assembly = Assembly.LoadFrom("application_test");
-Type[] allTypes = assembly.GetTypes();
-List<Type> testClasses = new();
-
-foreach (Type testType in allTypes)
-{
-    var classAttr = testType.GetCustomAttribute<TestClassAttribute>();
-    if (classAttr == null) continue;
-
-    Console.WriteLine($"\n>>>> НАЙДЕН ТЕСТОВЫЙ КЛАСС: {testType.Name} <<<<\n");
-    testClasses.Add(testType);
-}
-
-
-foreach (Type testClassType in testClasses)
-{
-    Console.ForegroundColor = ConsoleColor.Yellow;
-    Console.WriteLine($"\n=== запуск тестов из класса {testClassType.Name} ===\n");
-    Console.ResetColor();
-    object testInstance = Activator.CreateInstance(testClassType);
-    MethodInfo[] methods = testClassType.GetMethods();
-
-    MethodInfo startMethod = null;
-    MethodInfo finishMethod = null;
-
-    foreach (var m in methods)
-    {
-        if (m.GetCustomAttribute<StartAttribute>() != null) startMethod = m;
-        if (m.GetCustomAttribute<EndAttribute>() != null) finishMethod = m;
-    }
-
-    int passed = 0;
-    int failed = 0;
-
-    Console.WriteLine("--- Запуск обычных тестов ---");
-    foreach (var method in methods)
-    {
-        var attr = method.GetCustomAttribute<TestMethodAttribute>();
-        if (attr == null) continue;
-        if (method.GetCustomAttribute<SkipAttribute>() != null)
+        static async Task Main(string[] args)
         {
-            Console.ForegroundColor = ConsoleColor.Magenta;
-            Console.WriteLine($"Тест {method.Name} пока не работает");
-            Console.ResetColor();
-            continue;
-        }
-        try
-        {
-            Console.Write($"Запуск {method.Name} ({attr.AdditionalInfo})... ");
+            Console.WriteLine("=== ЗАПУСК ЛАБОРАТОРНОЙ РАБОТЫ №2 (Многопоточность) ===\n");
 
 
-            var paramAttrs = method.GetCustomAttributes<ParameterAttribute>().ToArray();
-            Object[] parameters = null;
-            if (paramAttrs != null && paramAttrs.Length > 0)
+            Assembly assembly = Assembly.LoadFrom("application_test");
+            Type[] allTypes = assembly.GetTypes();
+            List<Type> testClasses = new();
+            foreach (Type testType in allTypes)
             {
-                foreach (var param in paramAttrs)
+                var classAttr = testType.GetCustomAttribute<TestClassAttribute>();
+                if (classAttr == null) continue;
+
+                Console.WriteLine($"\n>>>> НАЙДЕН ТЕСТОВЫЙ КЛАСС: {testType.Name} <<<<\n");
+                testClasses.Add(testType);
+            }
+
+            var regularTests = new List<TestWorkItem>();
+            var sharedGroups = new List<IGrouping<int, MethodInfo>>();
+
+            foreach (var type in testClasses)
+            {
+                var methods = type.GetMethods();
+                var start = methods.FirstOrDefault(m => m.GetCustomAttribute<StartAttribute>() != null);
+                var end = methods.FirstOrDefault(m => m.GetCustomAttribute<EndAttribute>() != null);
+
+                foreach (var m in methods)
                 {
+                    if (m.GetCustomAttribute<SkipAttribute>() != null) continue;
 
-                    startMethod?.Invoke(testInstance, new object[] { attr.DayCaloriesNorm });
-                    await RunTest(method, testInstance, param.parameters);
-                    finishMethod?.Invoke(testInstance, null);
+                    var testAttr = m.GetCustomAttribute<TestMethodAttribute>();
+                    var sharedAttr = m.GetCustomAttribute<SharedContextAttribute>();
 
-                    Console.Write($"\n\tТест с параметрами пройден успешно\t");
-                }
-            }
-            else
-            {
-                startMethod?.Invoke(testInstance, new object[] { attr.DayCaloriesNorm });
-                await RunTest(method, testInstance, null);
-                finishMethod?.Invoke(testInstance, null);
-            }
-
-
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine("Пройден");
-            Console.ResetColor();
-            passed++;
-        }
-        catch (Exception ex)
-        {
-            var realException = ex.InnerException ?? ex;
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"Провален: {realException.Message}");
-            Console.ResetColor();
-            failed++;
-        }
-    }
-
-    Console.WriteLine("\n--- Результаты ---");
-    Console.WriteLine($"Всего: {passed + failed} | Успешно: {passed} | Ошибок: {failed}");
-
-
-
-
-    Console.ForegroundColor = ConsoleColor.Yellow;
-    Console.WriteLine("\n\n--- Запуск тестов с SharedContext ---");
-    Console.ResetColor();
-    var methodsWithShared = new List<(MethodInfo method, int contextId, int priority)>();
-
-    foreach (var method in methods)
-    {
-        var attr = method.GetCustomAttribute<SharedContextAttribute>();
-        if (attr != null)
-        {
-            methodsWithShared.Add((method, attr.ContextId, attr.Priority));
-        }
-    }
-
-    var contextGroup = methodsWithShared.GroupBy(t => t.contextId).OrderBy(g => g.Key);
-
-    foreach (var group in contextGroup)
-    {
-
-        passed = 0;
-        failed = 0;
-        Console.WriteLine($"\n--- Исполнение Контекста ID: {group.Key} ---");
-
-        var sortedGroup = group.OrderBy(t => t.priority).ToList();
-
-        var paramAttr = sortedGroup[0].method.GetCustomAttribute<SharedContextParamAttribute>();
-
-        Console.Write($"Инициализация контекста для ({paramAttr.AdditionalInfo})... \n");
-
-        startMethod?.Invoke(testInstance, new object[] { paramAttr.DayCaloriesNorm });
-
-        foreach (var methodInfo in sortedGroup)
-        {
-            var method = methodInfo.method;
-
-            if (method.GetCustomAttribute<SkipAttribute>() != null)
-            {
-                Console.ForegroundColor = ConsoleColor.Magenta;
-                Console.WriteLine($"Тест {method.Name} пока не работает");
-                Console.ResetColor();
-                continue;
-            }
-            try
-            {
-                Console.Write($"{methodInfo.priority}) {method.Name} ... ");
-
-
-                var paramAttrs = method.GetCustomAttributes<ParameterAttribute>().ToArray();
-                Object[] parameters = null;
-                if (paramAttrs != null && paramAttrs.Length > 0)
-                {
-                    foreach (var param in paramAttrs)
+                    if (testAttr != null)
                     {
-
-                        await RunTest(method, testInstance, param.parameters);
-
-                        Console.Write($"\n\tТест с параметрами пройден успешно\t");
+                        regularTests.Add(new TestWorkItem
+                        {
+                            Method = m,
+                            ClassType = type,
+                            StartMethod = start,
+                            FinishMethod = end,
+                            Config = testAttr
+                        });
                     }
                 }
-                else
+
+                // Shared Context
+                var typeShared = methods
+                    .Where(m => m.GetCustomAttribute<SharedContextAttribute>() != null)
+                    .GroupBy(m => m.GetCustomAttribute<SharedContextAttribute>().ContextId);
+                sharedGroups.AddRange(typeShared);
+            }
+
+            Stopwatch sw = Stopwatch.StartNew();
+
+            List<Task> allTasks = new List<Task>();
+
+            foreach (var test in regularTests)
+            {
+                var currentTest = test;
+                allTasks.Add(Task.Run(async () => {
+                    await semaphore.WaitAsync();
+                    try
+                    {
+                        await ExecuteSingleTest(currentTest);
+                    }
+                    finally
+                    {
+                        semaphore.Release();
+                    }
+                }));
+            }
+
+            foreach (var group in sharedGroups)
+            {
+                var currentGroup = group;
+                allTasks.Add(Task.Run(async () => {
+                    await semaphore.WaitAsync();
+                    try
+                    {
+                        await ExecuteSharedGroup(currentGroup);
+                    }
+                    finally
+                    {
+                        semaphore.Release();
+                    }
+                }));
+            }
+
+            await Task.WhenAll(allTasks);
+            sw.Stop();
+
+            Console.WriteLine($"\n========================================");
+            Console.WriteLine($"Все тесты завершены за: {sw.ElapsedMilliseconds} мс");
+            Console.WriteLine($"Степень параллелизма: {MaxParallelism}");
+            Console.WriteLine("========================================");
+        }
+
+        private static async Task ExecuteSingleTest(TestWorkItem work)
+        {
+            var paramAttrs = work.Method.GetCustomAttributes<ParameterAttribute>().ToArray();
+
+            object[][] allParams = paramAttrs.Length > 0
+                ? paramAttrs.Select(p => p.parameters).ToArray()
+                : new object[][] { null };
+
+            foreach (var parameters in allParams)
+            {
+                object instance = Activator.CreateInstance(work.ClassType);
+                var timeoutAttr = work.Method.GetCustomAttribute<TimeoutAttribute>();
+
+                try
                 {
-                    await RunTest(method, testInstance, null);
+                    // 1. Инициализация (Start)
+                    work.StartMethod?.Invoke(instance, new object[] { work.Config.DayCaloriesNorm });
+
+                    // 2. Выполнение с параметрами
+                    Task testTask = (work.Method.ReturnType == typeof(Task))
+                        ? (Task)work.Method.Invoke(instance, parameters)
+                        : Task.Run(() => work.Method.Invoke(instance, parameters));
+
+                    if (timeoutAttr != null)
+                    {
+                        if (await Task.WhenAny(testTask, Task.Delay(timeoutAttr.Milliseconds)) != testTask)
+                            throw new Exception($"TimeOut: {timeoutAttr.Milliseconds}мс");
+                    }
+
+                    await testTask;
+                    work.FinishMethod?.Invoke(instance, null);
+                    LogResult(work.ClassType.Name, work.Method.Name, "ПРОЙДЕН", ConsoleColor.Green);
                 }
+                catch (Exception ex)
+                {
+                    var msg = (ex.InnerException ?? ex).Message;
+                    LogResult(work.ClassType.Name, work.Method.Name, $"ПРОВАЛЕН: {msg}", ConsoleColor.Red);
+                }
+            }
+        }
 
+        private static async Task ExecuteSharedGroup(IGrouping<int, MethodInfo> group)
+        {
+            var firstMethod = group.First();
+            var classType = firstMethod.DeclaringType;
+            object instance = Activator.CreateInstance(classType);
 
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine("Пройден");
-                Console.ResetColor();
-                passed++;
+            var startMethod = classType.GetMethods().FirstOrDefault(m => m.GetCustomAttribute<StartAttribute>() != null);
+            var finishMethod = classType.GetMethods().FirstOrDefault(m => m.GetCustomAttribute<EndAttribute>() != null);
+
+            var contextParam = group
+                .Select(m => m.GetCustomAttribute<SharedContextParamAttribute>())
+                .FirstOrDefault(a => a != null) ?? new SharedContextParamAttribute();
+
+            try
+            {
+                startMethod?.Invoke(instance, new object[] { contextParam.DayCaloriesNorm });
+
+                var sorted = group.OrderBy(m => m.GetCustomAttribute<SharedContextAttribute>().Priority);
+                foreach (var method in sorted)
+                {
+                    try
+                    {
+                        if (method.ReturnType == typeof(Task)) await (Task)method.Invoke(instance, null);
+                        else method.Invoke(instance, null);
+                        LogResult($"Context-{group.Key}", method.Name, "OK", ConsoleColor.Cyan);
+                    }
+                    catch (Exception ex)
+                    {
+                        LogResult($"Context-{group.Key}", method.Name, $"FAILED: {ex.InnerException?.Message}", ConsoleColor.Red);
+                        break;
+                    }
+                }
+                finishMethod?.Invoke(instance, null);
             }
             catch (Exception ex)
             {
-                var realException = ex.InnerException ?? ex;
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"Провален: {realException.Message}");
-                Console.ResetColor();
-                failed++;
+                LogResult($"Context-{group.Key}", "Инициализация", $"ОШИБКА: {ex.Message}", ConsoleColor.Red);
             }
         }
 
-        finishMethod?.Invoke(testInstance, null);
-        Console.WriteLine("\n--- Результаты выполнения контекста ---");
-        Console.WriteLine($"Всего: {passed + failed} | Успешно: {passed} | Ошибок: {failed}");
+        private static void LogResult(string className, string methodName, string status, ConsoleColor color)
+        {
+            lock (consoleLock)
+            {
+                Console.Write($"[{Thread.CurrentThread.ManagedThreadId}] ");
+                Console.Write($"{className.PadRight(20)} | {methodName.PadRight(25)} : ");
+                Console.ForegroundColor = color;
+                Console.WriteLine(status);
+                Console.ResetColor();
+            }
+        }
     }
 }

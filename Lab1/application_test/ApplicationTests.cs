@@ -43,6 +43,7 @@ namespace application_test
         }
 
         [TestMethod(AdditionalInfo = "Проверка асинхронного вызова")]
+        [Timeout(2000)]
         public async Task TestAsyncCalorieGet() // Асинхронный тест
         {
             int cal = await app.GetIngredientCaloriesAsync("яйца");

@@ -39,4 +39,10 @@
     public class TestClassAttribute() : System.Attribute { }
 
     public class SkipAttribute() : System.Attribute { }
+
+    public class TimeoutAttribute : System.Attribute {
+        public int Milliseconds { get; }
+
+        public TimeoutAttribute(int timeoutSeconds) { Milliseconds = timeoutSeconds; }
+    }
 }
