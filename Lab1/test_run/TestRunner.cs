@@ -133,10 +133,8 @@ namespace test_runner
 
                 try
                 {
-                    // 1. Инициализация (Start)
                     work.StartMethod?.Invoke(instance, new object[] { work.Config.DayCaloriesNorm });
 
-                    // 2. Выполнение с параметрами
                     Task testTask = (work.Method.ReturnType == typeof(Task))
                         ? (Task)work.Method.Invoke(instance, parameters)
                         : Task.Run(() => work.Method.Invoke(instance, parameters));
