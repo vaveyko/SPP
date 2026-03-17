@@ -28,8 +28,7 @@ namespace application_test
         [TestMethod(DayCaloriesNorm = 2000, AdditionalInfo = "Тяжелый расчет сложного рецепта")]
         public void HeavyCalculation()
         {
-            // Имитируем долгий расчет
-            Thread.Sleep(1500);
+            Thread.Sleep(2500);
 
             var meal = new Dictionary<string, double>
             {
@@ -65,6 +64,20 @@ namespace application_test
 
         [TestMethod(DayCaloriesNorm = 3000, AdditionalInfo = "Массовая проверка ингредиентов")]
         public async Task AsyncBatchProcessing()
+        {
+            await Task.Delay(1000);
+
+            var ingredients = app.GetAvailableIngredients();
+
+            Tests.CollectionCount(ingredients.Count, 9);
+            Tests.IsTrue(ingredients.Contains("курица"));
+
+            int cal = await app.GetIngredientCaloriesAsync("картошка");
+            Tests.IsEqual(cal, 77);
+        }
+
+        [TestMethod(DayCaloriesNorm = 3000, AdditionalInfo = "Массовая проверка ингредиентов 2")]
+        public async Task AsyncBatchProcessing_2()
         {
             await Task.Delay(1000);
 

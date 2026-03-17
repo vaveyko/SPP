@@ -2,6 +2,8 @@
 using lab1_test_framework;
 using System.Diagnostics;
 using System.Reflection;
+using test_run;
+using ThreadPool;
 
 
 namespace test_runner
@@ -16,13 +18,15 @@ namespace test_runner
     }
     class Program
     {
-        private static int MaxParallelism = 4;
-        private static SemaphoreSlim semaphore = new SemaphoreSlim(MaxParallelism);
         private static object consoleLock = new object();
+        private static int _minPool = 2;
+        private static int _maxPool = 10;
+        private static int _waitTime = 2;
+        private static int _execTime = 5;
 
         static async Task Main(string[] args)
         {
-            Console.WriteLine("=== ЗАПУСК ЛАБОРАТОРНОЙ РАБОТЫ №2 (Многопоточность) ===\n");
+            Console.WriteLine("=== ЗАПУСК ЛАБОРАТОРНОЙ РАБОТЫ ===\n");
 
 
             Assembly assembly = Assembly.LoadFrom("application_test");
@@ -75,50 +79,39 @@ namespace test_runner
 
             Stopwatch sw = Stopwatch.StartNew();
 
-            List<Task> allTasks = new List<Task>();
+            List<Action> allTasks = new List<Action>();
 
             foreach (var test in regularTests)
             {
                 var currentTest = test;
-                allTasks.Add(Task.Run(async () => {
-                    await semaphore.WaitAsync();
-                    try
-                    {
-                        await ExecuteSingleTest(currentTest);
-                    }
-                    finally
-                    {
-                        semaphore.Release();
-                    }
-                }));
+                allTasks.Add(() => ExecuteTest(currentTest).GetAwaiter().GetResult());
             }
 
             foreach (var group in sharedGroups)
             {
                 var currentGroup = group;
-                allTasks.Add(Task.Run(async () => {
-                    await semaphore.WaitAsync();
-                    try
-                    {
-                        await ExecuteSharedGroup(currentGroup);
-                    }
-                    finally
-                    {
-                        semaphore.Release();
-                    }
-                }));
+                allTasks.Add(() => ExecuteSharedGroup(currentGroup).GetAwaiter().GetResult());
             }
 
-            await Task.WhenAll(allTasks);
-            sw.Stop();
+            using (var customPool = new CustomThreadPool(
+                minThreads: _minPool,
+                maxThreads: _maxPool,
+                idleTimeout: TimeSpan.FromSeconds(_waitTime),
+                executionTimeout: TimeSpan.FromSeconds(_execTime)))
+            {
+                var simulator = new LoadSimulator(customPool, allTasks, 50);
+                simulator.Run();
+            }
+                sw.Stop();
 
             Console.WriteLine($"\n========================================");
             Console.WriteLine($"Все тесты завершены за: {sw.ElapsedMilliseconds} мс");
-            Console.WriteLine($"Степень параллелизма: {MaxParallelism}");
+            Console.WriteLine($"Минимальный параллелизм: {_minPool}");
+            Console.WriteLine($"Максимальный параллелизм: {_maxPool}");
             Console.WriteLine("========================================");
         }
 
-        private static async Task ExecuteSingleTest(TestWorkItem work)
+        private static async Task ExecuteTest(TestWorkItem work)
         {
             var paramAttrs = work.Method.GetCustomAttributes<ParameterAttribute>().ToArray();
 
@@ -135,7 +128,7 @@ namespace test_runner
                 {
                     work.StartMethod?.Invoke(instance, new object[] { work.Config.DayCaloriesNorm });
 
-                    Task testTask = (work.Method.ReturnType == typeof(Task))
+                    Task? testTask = (work.Method.ReturnType == typeof(Task))
                         ? (Task)work.Method.Invoke(instance, parameters)
                         : Task.Run(() => work.Method.Invoke(instance, parameters));
 
@@ -185,7 +178,7 @@ namespace test_runner
                     }
                     catch (Exception ex)
                     {
-                        LogResult($"Context-{group.Key}", method.Name, $"FAILED: {ex.InnerException?.Message}", ConsoleColor.Red);
+                        LogResult($"Context-{group.Key}", method.Name, $"ПРОВАЛЕН: {ex.InnerException?.Message}", ConsoleColor.Red);
                         break;
                     }
                 }

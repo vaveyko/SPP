@@ -17,6 +17,11 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "application", "..\applicati
 	EndProjectSection
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "test_run", "..\test_run\test_run.csproj", "{852E7483-85B5-40A0-AFA1-A2C6854B1874}"
+	ProjectSection(ProjectDependencies) = postProject
+		{D8D98908-BDDD-4FDC-9037-883A9FA5D007} = {D8D98908-BDDD-4FDC-9037-883A9FA5D007}
+	EndProjectSection
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ThreadPool", "..\ThreadPool\ThreadPool.csproj", "{D8D98908-BDDD-4FDC-9037-883A9FA5D007}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -40,6 +45,10 @@ Global
 		{852E7483-85B5-40A0-AFA1-A2C6854B1874}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{852E7483-85B5-40A0-AFA1-A2C6854B1874}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{852E7483-85B5-40A0-AFA1-A2C6854B1874}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D8D98908-BDDD-4FDC-9037-883A9FA5D007}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D8D98908-BDDD-4FDC-9037-883A9FA5D007}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D8D98908-BDDD-4FDC-9037-883A9FA5D007}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D8D98908-BDDD-4FDC-9037-883A9FA5D007}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
