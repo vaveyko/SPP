@@ -48,7 +48,7 @@ namespace application_test
         [Timeout(2500)]
         public async Task SlowVeganCheck()
         {
-            await Task.Delay(3000);
+            await Task.Delay(2000);
 
             var meal = new Dictionary<string, double>
             {

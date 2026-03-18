@@ -263,30 +263,26 @@ namespace test_runner
                         }
                         else
                         {
-                            // Без тайм-аута выполняем в текущем потоке пула
+                            // Без тайм-аута
                             runStepLogic.Invoke();
                         }
 
-                        // Если внутри шага упал Assert или была ошибка
                         if (testException != null) throw testException;
 
                         LogResult($"Context-{group.Key}", method.Name, "OK", ConsoleColor.Cyan);
                     }
                     catch (Exception ex)
                     {
-                        // Достаем чистое сообщение об ошибке
                         var msg = (ex is TargetInvocationException tie && tie.InnerException != null)
                                     ? tie.InnerException.Message
                                     : ex.Message;
 
                         LogResult($"Context-{group.Key}", method.Name, $"ПРОВАЛЕН: {msg}", ConsoleColor.Red);
 
-                        // ВАЖНО: Если один шаг контекста упал, мы прерываем выполнение всей группы (цепочки)
                         break;
                     }
                 }
 
-                // Очистка контекста (End)
                 finishMethod?.Invoke(instance, null);
             }
             catch (Exception ex)
