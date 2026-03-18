@@ -24,7 +24,7 @@ namespace test_runner
         private static int _waitTime = 2;
         private static int _execTime = 5;
 
-        static async Task Main(string[] args)
+        static void Main(string[] args)
         {
             Console.WriteLine("=== ЗАПУСК ЛАБОРАТОРНОЙ РАБОТЫ ===\n");
 
@@ -84,13 +84,13 @@ namespace test_runner
             foreach (var test in regularTests)
             {
                 var currentTest = test;
-                allTasks.Add(() => ExecuteTest(currentTest).GetAwaiter().GetResult());
+                allTasks.Add(() => ExecuteTest(currentTest));
             }
 
             foreach (var group in sharedGroups)
             {
                 var currentGroup = group;
-                allTasks.Add(() => ExecuteSharedGroup(currentGroup).GetAwaiter().GetResult());
+                allTasks.Add(() => ExecuteSharedGroup(currentGroup));
             }
 
             using (var customPool = new CustomThreadPool(
@@ -111,7 +111,7 @@ namespace test_runner
             Console.WriteLine("========================================");
         }
 
-        private static async Task ExecuteTest(TestWorkItem work)
+        private static void ExecuteTest(TestWorkItem work)
         {
             var paramAttrs = work.Method.GetCustomAttributes<ParameterAttribute>().ToArray();
 
@@ -128,29 +128,74 @@ namespace test_runner
                 {
                     work.StartMethod?.Invoke(instance, new object[] { work.Config.DayCaloriesNorm });
 
-                    Task? testTask = (work.Method.ReturnType == typeof(Task))
-                        ? (Task)work.Method.Invoke(instance, parameters)
-                        : Task.Run(() => work.Method.Invoke(instance, parameters));
+                    Exception testException = null;
+
+                    ThreadStart runTestLogic = () =>
+                    {
+                        try
+                        {
+                            var result = work.Method.Invoke(instance, parameters);
+
+                            // Если тест был написан как async Task, ждем его
+                            if (result is Task taskResult)
+                            {
+                                taskResult.GetAwaiter().GetResult();
+                            }
+                        }
+                        catch (TargetInvocationException ex)
+                        {
+                            testException = ex.InnerException ?? ex;
+                        }
+                        catch (Exception ex)
+                        {
+                            testException = ex;
+                        }
+                    };
 
                     if (timeoutAttr != null)
                     {
-                        if (await Task.WhenAny(testTask, Task.Delay(timeoutAttr.Milliseconds)) != testTask)
+                        Thread testThread = new Thread(runTestLogic)
+                        {
+                            IsBackground = true, 
+                            Name = $"TimeoutWorker_{work.Method.Name}"
+                        };
+
+                        testThread.Start();
+
+                        // Текущий рабочий поток нашего пула ждет
+                        bool finishedInTime = testThread.Join(timeoutAttr.Milliseconds);
+
+                        if (!finishedInTime)
+                        {
                             throw new Exception($"TimeOut: {timeoutAttr.Milliseconds}мс");
+                        }
+
+                        // Если внутри упал Assert
+                        if (testException != null) throw testException;
+                    }
+                    else
+                    {
+                        // тайм-аута нет
+                        runTestLogic.Invoke();
+
+                        if (testException != null) throw testException;
                     }
 
-                    await testTask;
                     work.FinishMethod?.Invoke(instance, null);
                     LogResult(work.ClassType.Name, work.Method.Name, "ПРОЙДЕН", ConsoleColor.Green);
                 }
                 catch (Exception ex)
                 {
-                    var msg = (ex.InnerException ?? ex).Message;
+                    var msg = (ex is TargetInvocationException tie && tie.InnerException != null)
+                                ? tie.InnerException.Message
+                                : ex.Message;
+
                     LogResult(work.ClassType.Name, work.Method.Name, $"ПРОВАЛЕН: {msg}", ConsoleColor.Red);
                 }
             }
         }
 
-        private static async Task ExecuteSharedGroup(IGrouping<int, MethodInfo> group)
+        private static void ExecuteSharedGroup(IGrouping<int, MethodInfo> group)
         {
             var firstMethod = group.First();
             var classType = firstMethod.DeclaringType;
@@ -168,25 +213,89 @@ namespace test_runner
                 startMethod?.Invoke(instance, new object[] { contextParam.DayCaloriesNorm });
 
                 var sorted = group.OrderBy(m => m.GetCustomAttribute<SharedContextAttribute>().Priority);
+
                 foreach (var method in sorted)
                 {
+                    var timeoutAttr = method.GetCustomAttribute<TimeoutAttribute>();
+                    Exception testException = null;
+
+                    // логика вызова
+                    ThreadStart runStepLogic = () =>
+                    {
+                        try
+                        {
+                            var result = method.Invoke(instance, null);
+
+                            // Если шаг асинхронный 
+                            if (result is Task taskResult)
+                            {
+                                taskResult.GetAwaiter().GetResult();
+                            }
+                        }
+                        catch (TargetInvocationException ex)
+                        {
+                            testException = ex.InnerException ?? ex;
+                        }
+                        catch (Exception ex)
+                        {
+                            testException = ex;
+                        }
+                    };
+
                     try
                     {
-                        if (method.ReturnType == typeof(Task)) await (Task)method.Invoke(instance, null);
-                        else method.Invoke(instance, null);
+                        if (timeoutAttr != null)
+                        {
+                            // Если у шага есть Timeout
+                            Thread stepThread = new Thread(runStepLogic)
+                            {
+                                IsBackground = true,
+                                Name = $"ContextWorker_{method.Name}"
+                            };
+
+                            stepThread.Start();
+                            bool finishedInTime = stepThread.Join(timeoutAttr.Milliseconds);
+
+                            if (!finishedInTime)
+                            {
+                                throw new Exception($"TimeOut: {timeoutAttr.Milliseconds}мс");
+                            }
+                        }
+                        else
+                        {
+                            // Без тайм-аута выполняем в текущем потоке пула
+                            runStepLogic.Invoke();
+                        }
+
+                        // Если внутри шага упал Assert или была ошибка
+                        if (testException != null) throw testException;
+
                         LogResult($"Context-{group.Key}", method.Name, "OK", ConsoleColor.Cyan);
                     }
                     catch (Exception ex)
                     {
-                        LogResult($"Context-{group.Key}", method.Name, $"ПРОВАЛЕН: {ex.InnerException?.Message}", ConsoleColor.Red);
+                        // Достаем чистое сообщение об ошибке
+                        var msg = (ex is TargetInvocationException tie && tie.InnerException != null)
+                                    ? tie.InnerException.Message
+                                    : ex.Message;
+
+                        LogResult($"Context-{group.Key}", method.Name, $"ПРОВАЛЕН: {msg}", ConsoleColor.Red);
+
+                        // ВАЖНО: Если один шаг контекста упал, мы прерываем выполнение всей группы (цепочки)
                         break;
                     }
                 }
+
+                // Очистка контекста (End)
                 finishMethod?.Invoke(instance, null);
             }
             catch (Exception ex)
             {
-                LogResult($"Context-{group.Key}", "Инициализация", $"ОШИБКА: {ex.Message}", ConsoleColor.Red);
+                var msg = (ex is TargetInvocationException tie && tie.InnerException != null)
+                            ? tie.InnerException.Message
+                            : ex.Message;
+
+                LogResult($"Context-{group.Key}", "Инициализация", $"ОШИБКА: {msg}", ConsoleColor.Red);
             }
         }
 

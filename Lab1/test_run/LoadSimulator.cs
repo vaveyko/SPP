@@ -79,7 +79,7 @@ namespace test_run
             for (int i = 1; i <= 31; i++)
             {
                 _pool.Enqueue(WrapTask(loadQueue[i]));
-                Thread.Sleep(20);
+                Thread.Sleep(10);
             }
 
             // Пауза для сжатия
@@ -92,7 +92,7 @@ namespace test_run
             for (int i = 31; i < _maxTasks; i++)
             {
                 _pool.Enqueue(WrapTask(loadQueue[i]));
-                Thread.Sleep(50); // Кидаем по 1 тесту каждые 50мс
+                Thread.Sleep(50);
             }
 
             // для сжатия
