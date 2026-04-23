@@ -45,4 +45,26 @@
 
         public TimeoutAttribute(int timeoutSeconds) { Milliseconds = timeoutSeconds; }
     }
+
+    [AttributeUsage(AttributeTargets.Method, AllowMultiple = true)]
+    public class CategoryAttribute : Attribute
+    {
+        public string Name { get; }
+
+        public CategoryAttribute(string name)
+        {
+            Name = name;
+        }
+    }
+
+    [AttributeUsage(AttributeTargets.Method)]
+    public class ValueSourceAttribute : Attribute
+    {
+        public string MethodName { get; }
+
+        public ValueSourceAttribute(string methodName)
+        {
+            MethodName = methodName;
+        }
+    }
 }

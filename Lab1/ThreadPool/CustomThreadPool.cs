@@ -4,8 +4,56 @@ using System.Threading;
 
 namespace ThreadPool
 {
+    public static class ConsoleLogger
+    {
+        // ЕДИНСТВЕННЫЙ ЗАМОК ДЛЯ ВСЕЙ ПРОГРАММЫ
+        private static readonly object _globalLock = new object();
+
+        public static void Log(string message, ConsoleColor color = ConsoleColor.White)
+        {
+            lock (_globalLock)
+            {
+                Console.ForegroundColor = color;
+                Console.WriteLine(message);
+                Console.ResetColor();
+            }
+        }
+
+        public static void LogTestResult(string className, string methodName, string status, ConsoleColor color)
+        {
+            lock (_globalLock)
+            {
+                Console.Write($"[Поток {Thread.CurrentThread.ManagedThreadId:D2}] ");
+                Console.Write($"{className.PadRight(20)} | {methodName.PadRight(25)} : ");
+                Console.ForegroundColor = color;
+                Console.WriteLine(status);
+                Console.ResetColor();
+            }
+        }
+    }
+    // ============ ДОБАВЛЕНО: Классы аргументов для событий ============
+    public class ThreadEventArgs : EventArgs
+    {
+        public string ThreadName { get; }
+        public int ManagedThreadId { get; }
+
+        public ThreadEventArgs(string name, int id)
+        {
+            ThreadName = name;
+            ManagedThreadId = id;
+        }
+    }
+    // ==================================================================
+
     public class CustomThreadPool : IDisposable
     {
+        // ============ ДОБАВЛЕНО: Объявление событий ============
+        public event EventHandler<ThreadEventArgs> ThreadCreated;
+        public event EventHandler<ThreadEventArgs> ThreadDestroyed;
+        public event EventHandler<ThreadEventArgs> TaskStarted;
+        public event EventHandler<ThreadEventArgs> TaskCompleted;
+        // =======================================================
+
         private readonly Queue<Action> _taskQueue = new Queue<Action>();
         private readonly List<Thread> _workers = new List<Thread>();
         private readonly object _lockObj = new object();
@@ -17,7 +65,7 @@ namespace ThreadPool
 
         private readonly TimeSpan _executionTimeout;
         private readonly Dictionary<Thread, DateTime> _busyThreads = new Dictionary<Thread, DateTime>();
-        private readonly object _trackingLock = new object(); // Отдельный лок, чтобы не тормозить очередь
+        private readonly object _trackingLock = new object();
         private readonly Thread _monitorThread;
 
         private int _activeThreadsCount = 0;
@@ -38,7 +86,6 @@ namespace ThreadPool
                 CreateWorker();
             }
 
-            // Запуск надзирателя
             _monitorThread = new Thread(MonitorLoop) { IsBackground = true, Name = "Pool_Monitor" };
             _monitorThread.Start();
         }
@@ -73,6 +120,12 @@ namespace ThreadPool
 
             _workers.Add(worker);
             _activeThreadsCount++;
+
+            // ============ ДОБАВЛЕНО: Вызов события ============
+            // Конструкция ?.Invoke безопасна, если на событие никто не подписан
+            ThreadCreated?.Invoke(this, new ThreadEventArgs(worker.Name, worker.ManagedThreadId));
+            // ==================================================
+
             worker.Start();
         }
 
@@ -125,11 +178,19 @@ namespace ThreadPool
 
                     try
                     {
+                        // ============ ДОБАВЛЕНО: Вызов события ============
+                        TaskStarted?.Invoke(this, new ThreadEventArgs(Thread.CurrentThread.Name, Thread.CurrentThread.ManagedThreadId));
+                        // ==================================================
+
                         task.Invoke();
+
+                        // ============ ДОБАВЛЕНО: Вызов события ============
+                        TaskCompleted?.Invoke(this, new ThreadEventArgs(Thread.CurrentThread.Name, Thread.CurrentThread.ManagedThreadId));
+                        // ==================================================
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[Thread Pool] Сбой в задаче: {ex.Message}");
+                        ConsoleLogger.Log($"[Thread Pool] Сбой в задаче: {ex.Message}", ConsoleColor.Red);
                     }
                     finally
                     {
@@ -139,7 +200,6 @@ namespace ThreadPool
                         }
                     }
 
-                    // Если поток отвис, но его уже удалили
                     lock (_lockObj)
                     {
                         if (!_workers.Contains(Thread.CurrentThread))
@@ -156,6 +216,10 @@ namespace ThreadPool
                 {
                     _workers.Remove(Thread.CurrentThread);
                     _activeThreadsCount--;
+
+                    // ============ ДОБАВЛЕНО: Вызов события ============
+                    ThreadDestroyed?.Invoke(this, new ThreadEventArgs(Thread.CurrentThread.Name, Thread.CurrentThread.ManagedThreadId));
+                    // ==================================================
                 }
             }
         }
@@ -164,7 +228,7 @@ namespace ThreadPool
         {
             while (!_isShuttingDown)
             {
-                Thread.Sleep(1000); // Проверяем раз в секунду
+                Thread.Sleep(1000);
 
                 List<Thread> hungThreads = new List<Thread>();
                 DateTime now = DateTime.UtcNow;
@@ -194,11 +258,10 @@ namespace ThreadPool
                             _workers.Remove(th);
                             _activeThreadsCount--;
 
-                            Console.ForegroundColor = ConsoleColor.Magenta;
-                            Console.WriteLine($"[MONITOR] Поток {th.Name} завис (>{_executionTimeout.TotalSeconds}с). Удален из пула. Создаем замену.");
-                            Console.ResetColor();
+                            // ============ ДОБАВЛЕНО: Вызов события для зависшего ============
+                            ThreadDestroyed?.Invoke(this, new ThreadEventArgs(th.Name + " (ЗАВИС)", th.ManagedThreadId));
+                            // ================================================================
 
-                            // Если нужно, восполняем потерю
                             CreateWorker();
                         }
                     }

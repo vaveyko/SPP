@@ -25,6 +25,7 @@ namespace application_test
             app = null;
         }
 
+        [Category("Fast")]
         [TestMethod(DayCaloriesNorm = 2000, AdditionalInfo = "Тяжелый расчет сложного рецепта")]
         public void HeavyCalculation()
         {
@@ -45,6 +46,7 @@ namespace application_test
         }
 
         [TestMethod(DayCaloriesNorm = 1500, AdditionalInfo = "Долгая проверка веганского меню")]
+        [Category("Critical")]
         [Timeout(2500)]
         public async Task SlowVeganCheck()
         {
@@ -62,6 +64,7 @@ namespace application_test
             Tests.StringContains(result.Message, "сыр");
         }
 
+        [Category("Fast")]
         [TestMethod(DayCaloriesNorm = 3000, AdditionalInfo = "Массовая проверка ингредиентов")]
         public async Task AsyncBatchProcessing()
         {
@@ -76,6 +79,7 @@ namespace application_test
             Tests.IsEqual(cal, 77);
         }
 
+        [Category("Fast")]
         [TestMethod(DayCaloriesNorm = 3000, AdditionalInfo = "Массовая проверка ингредиентов 2")]
         public async Task AsyncBatchProcessing_2()
         {

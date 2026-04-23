@@ -26,9 +26,10 @@ namespace application_test
             var meal = new Dictionary<string, double> { ["курица"] = 100 };
             var result = app.CheckDietCompliance(meal, DietType.Vegetarian);
 
-            Tests.IsFalse(result.IsCompliant); // 1 проверка
-            Tests.IsNotNull(result.Message);    // 2 проверка
-            Tests.StringContains(result.Message, "мясо"); // 3 проверка
+            // Используем магию Expression Trees для проверки свойств и содержания строки
+            Tests.Check(() => result.IsCompliant == false);
+            Tests.Check(() => result.Message != null);
+            Tests.Check(() => result.Message.Contains("мясо"));
         }
 
         [TestMethod(DayCaloriesNorm = 2500, AdditionalInfo = "Проверка подсчета калорий")]
@@ -36,29 +37,31 @@ namespace application_test
         [SharedContext(1, 1)]
         public void TestCalorieLimit()
         {
-            var meal = new Dictionary<string, double> { ["масло"] = 500 }; // Очень много калорий
+            var meal = new Dictionary<string, double> { ["масло"] = 500 };
             int total = app.CalculateTotalCalories(meal);
 
-            Tests.IsGreater(total, app.dayCaloriesNorm); // 4 проверка
+            // Если упадет, увидим: Ожидалось total (3585) > app.dayCaloriesNorm (2500)
+            Tests.Check(() => total > app.dayCaloriesNorm);
         }
 
         [TestMethod(AdditionalInfo = "Проверка асинхронного вызова")]
+        [Category("Critical")]
         [Timeout(2000)]
-        public async Task TestAsyncCalorieGet() // Асинхронный тест
+        public async Task TestAsyncCalorieGet()
         {
             int cal = await app.GetIngredientCaloriesAsync("яйца");
-            Tests.IsEqual(cal, 155); // 6 проверка
-            Tests.IsNotEqual(cal, 0); // 7 проверка
+
+            Tests.Check(() => cal == 155);
+            Tests.Check(() => cal != 0);
         }
-
-
 
         [TestMethod(AdditionalInfo = "Проверка количества записей")]
         [Skip]
         public void TestCollection()
         {
             var list = app.GetAvailableIngredients();
-            Tests.CollectionCount(list.Count, 9);
+            // Проверка размера коллекции через дерево выражений
+            Tests.Check(() => list.Count == 9);
         }
 
         [TestMethod(AdditionalInfo = "Тест подсчета возможной порции")]
@@ -70,67 +73,80 @@ namespace application_test
             var new_meal = new Dictionary<string, double> { ["молоко"] = gramm };
             int cal = app.CalculateTotalCalories(new_meal);
 
-            Tests.IsLess(cal, app.dayCaloriesNorm+1);
-            Tests.IsTrue(cal >= 0);
+            Tests.Check(() => cal < app.dayCaloriesNorm + 1);
+            Tests.Check(() => cal >= 0);
         }
 
         [TestMethod(AdditionalInfo = "Поиск несуществующего ингридиента")]
         [Parameter(new Object[] { "бетон" })]
-        //[Parameter(new Object[] { "молоко"})]
         public void TestNullSearch(string ingridient)
         {
             var info = app.GetIngredientDescription(ingridient);
-            Tests.IsNull(info);
+            // Проверка на null
+            Tests.Check(() => info == null);
+        }
+
+        public static IEnumerable<object[]> GetCaloriesDataBase()
+        {
+            yield return new object[] { "сахар", 387 };
+            yield return new object[] { "масло", 717 };
+            yield return new object[] { "яйца", 155 };
+            yield return new object[] { "курица", 165 };
         }
 
         [TestMethod(AdditionalInfo = "Проверка значений словаря")]
-        [Parameter(new Object[] { "мука", 364 })]
-        [Parameter(new Object[] { "сахар", 387 })]
-        [Parameter(new Object[] { "масло", 717 })]
-        [Parameter(new Object[] { "яйца", 155 })]
-        [Parameter(new Object[] { "молоко", 64 })]
-        [Parameter(new Object[] { "курица", 165 })]
+        [ValueSource("GetCaloriesDataBase")]
         public void TestDatabaseData(string ingridName, int caloriesExpected)
         {
             var dictIngridient = new Dictionary<string, double> { [ingridName] = 100 };
             int current = app.CalculateTotalCalories(dictIngridient);
-            Tests.IsEqual(current, caloriesExpected);
+
+            Tests.Check(() => current == caloriesExpected);
         }
 
+        public static IEnumerable<object[]> GetCaloriesData()
+        {
+            yield return new object[] { "мука", 364 };
+            yield return new object[] { "молоко", 64 };
+            yield return new object[] { "рис", 344 };
+        }
 
+        [TestMethod(AdditionalInfo = "Тест с использованием yield return")]
+        [ValueSource("GetCaloriesData")]
+        public void TestWithYieldReturn(string ingridName, int expectedCalories)
+        {
+            var dictIngridient = new Dictionary<string, double> { [ingridName] = 100 };
+            int current = app.CalculateTotalCalories(dictIngridient);
 
+            Tests.Check(() => current == expectedCalories);
+        }
 
         [SharedContextParam(AdditionalInfo = "Проверка накопительной возможности контекста", DayCaloriesNorm = 2000)]
         [SharedContext(contextId: 2, priority: 1)]
         public void Step1_CalculateBreakfast()
         {
-            // 310 ккал.
             var breakfast = new Dictionary<string, double> { ["яйца"] = 200 };
-
             int currentMeal = app.CalculateTotalCalories(breakfast);
 
-            Tests.IsEqual(currentMeal, 310);          
-            Tests.IsEqual(app.totalCalories, 310);   
+            Tests.Check(() => currentMeal == 310);
+            Tests.Check(() => app.totalCalories == 310);
         }
 
         [SharedContext(contextId: 2, priority: 2)]
         public void Step2_CalculateLunch()
         {
-            // 330 ккал.
             var lunch = new Dictionary<string, double> { ["курица"] = 200 };
-
             int currentMeal = app.CalculateTotalCalories(lunch);
 
-            Tests.IsEqual(currentMeal, 330);
-            Tests.IsEqual(app.totalCalories, 640); 
+            Tests.Check(() => currentMeal == 330);
+            Tests.Check(() => app.totalCalories == 640);
         }
 
         [SharedContext(contextId: 2, priority: 3)]
         public void Step3_CheckDailyLimit()
         {
-            Tests.IsLess(app.totalCalories, app.dayCaloriesNorm);
-
-            Tests.IsTrue(app.totalCalories > 0);
+            Tests.Check(() => app.totalCalories < app.dayCaloriesNorm);
+            Tests.Check(() => app.totalCalories > 0);
         }
     }
 }

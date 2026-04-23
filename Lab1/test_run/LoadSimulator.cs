@@ -1,4 +1,8 @@
-﻿using System.Diagnostics;
+﻿using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using System.Threading;
 using ThreadPool;
 
 namespace test_run
@@ -8,20 +12,45 @@ namespace test_run
         private readonly CustomThreadPool _pool;
         private readonly List<Action> _baseTasks;
         private readonly int _maxTasks;
-        private readonly object _consoleLock = new object();
 
         public LoadSimulator(CustomThreadPool pool, List<Action> baseTasks, int totalTasks = 50)
         {
             _pool = pool;
             _baseTasks = baseTasks;
             _maxTasks = totalTasks;
+
+            _pool.ThreadCreated += OnThreadCreated;
+            _pool.ThreadDestroyed += OnThreadDestroyed;
+            _pool.TaskStarted += OnTaskStarted;
+            _pool.TaskCompleted += OnTaskCompleted;
+        }
+
+        private void OnThreadCreated(object sender, ThreadEventArgs e)
+        {
+            ConsoleLogger.Log($"[EVENT] Пул СОЗДАЛ поток: {e.ThreadName} (ID: {e.ManagedThreadId})", ConsoleColor.Green);
+        }
+
+        private void OnThreadDestroyed(object sender, ThreadEventArgs e)
+        {
+            ConsoleLogger.Log($"[EVENT] Пул УДАЛИЛ поток: {e.ThreadName} (ID: {e.ManagedThreadId} | Всего потоков в пуле: {_pool.GetActiveThreads()})", ConsoleColor.DarkRed);
+        }
+
+        private void OnTaskStarted(object sender, ThreadEventArgs e)
+        {
+            string stats = $"(Всего потоков в пуле: {_pool.GetActiveThreads()} | Свободно: {_pool.GetWaitingThreads()} | В очереди: {_pool.GetQueueLength()})";
+            ConsoleLogger.Log($"  [->] Поток {e.ManagedThreadId:D2} взял задачу. {stats}", ConsoleColor.Yellow);
+        }
+
+        private void OnTaskCompleted(object sender, ThreadEventArgs e)
+        {
+            ConsoleLogger.Log($"  [<-] Поток {e.ManagedThreadId:D2} завершил задачу.", ConsoleColor.DarkGray);
         }
 
         public void Run()
         {
             if (_baseTasks == null || _baseTasks.Count == 0)
             {
-                Console.WriteLine("Нет тестов для симуляции!");
+                ConsoleLogger.Log("Нет тестов для симуляции!", ConsoleColor.Red);
                 return;
             }
 
@@ -32,11 +61,11 @@ namespace test_run
             }
             loadQueue = loadQueue.Take(_maxTasks).ToList();
 
-            Console.WriteLine("\n=======================================================");
-            Console.WriteLine($"    СТАРТ СИМУЛЯЦИИ НАГРУЗКИ ({_maxTasks} ЗАПУСКОВ ТЕСТОВ)      ");
-            Console.WriteLine("=======================================================\n");
+            ConsoleLogger.Log("\n=======================================================", ConsoleColor.White);
+            ConsoleLogger.Log($"    СТАРТ СИМУЛЯЦИИ НАГРУЗКИ ({_maxTasks} ЗАПУСКОВ ТЕСТОВ)      ", ConsoleColor.White);
+            ConsoleLogger.Log("=======================================================\n", ConsoleColor.White);
 
-            CountdownEvent countdown = new CountdownEvent(loadQueue.Count + 1);
+            CountdownEvent countdown = new CountdownEvent(loadQueue.Count);
 
             Action WrapTask(Action originalTask) => () =>
             {
@@ -44,67 +73,39 @@ namespace test_run
                 finally { countdown.Signal(); }
             };
 
-            bool isSimulating = true;
-            Thread monitorThread = new Thread(() =>
-            {
-                while (isSimulating)
-                {
-                    lock (_consoleLock) {
-                        Console.ForegroundColor = ConsoleColor.Yellow;
-                        Console.WriteLine($"\n[МОНИТОР] Активных потоков: {_pool.GetActiveThreads()} | Свободных: {_pool.GetWaitingThreads()} | Задач в очереди: {_pool.GetQueueLength()}");
-                        Console.ResetColor();
-                        Thread.Sleep(500); // Обновление мониторинга
-                    }
-                }
-            })
-            { IsBackground = true, Name = "Simulation_Monitor" };
-
-            monitorThread.Start();
             Stopwatch sw = Stopwatch.StartNew();
 
-            // Сценарии
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine("\n---> ЭТАП 1: Подача 1 теста <---");
-            Console.ResetColor();
-
+            ConsoleLogger.Log("\n---> Подача 1 теста <---", ConsoleColor.Cyan);
             _pool.Enqueue(WrapTask(loadQueue[0]));
-
-            // Пауза для сжатия
             Thread.Sleep(1000);
 
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine("\n---> ЭТАП 2: Пиковая нагрузка (30 тестов одновременно) <---");
-            Console.ResetColor();
-
+            ConsoleLogger.Log("\n---> Подача 30 тестов одновременно <---", ConsoleColor.Cyan);
             for (int i = 1; i <= 31; i++)
             {
-                _pool.Enqueue(WrapTask(loadQueue[i]));
+                if (i < loadQueue.Count) _pool.Enqueue(WrapTask(loadQueue[i]));
                 Thread.Sleep(10);
             }
 
-            // Пауза для сжатия
             Thread.Sleep(4000);
 
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine("\n---> ЭТАП 3: Подача оставшихся тестов <---");
-            Console.ResetColor();
-
-            for (int i = 31; i < _maxTasks; i++)
+            ConsoleLogger.Log("\n---> Подача оставшихся тестов <---", ConsoleColor.Cyan);
+            for (int i = 32; i < _maxTasks; i++)
             {
-                _pool.Enqueue(WrapTask(loadQueue[i]));
+                if (i < loadQueue.Count) _pool.Enqueue(WrapTask(loadQueue[i]));
                 Thread.Sleep(50);
             }
 
-            // для сжатия
-            Thread.Sleep(5000);
             countdown.Wait();
             sw.Stop();
 
-            isSimulating = false;
+            _pool.ThreadCreated -= OnThreadCreated;
+            _pool.ThreadDestroyed -= OnThreadDestroyed;
+            _pool.TaskStarted -= OnTaskStarted;
+            _pool.TaskCompleted -= OnTaskCompleted;
 
-            Console.WriteLine($"\n=======================================================");
-            Console.WriteLine($"  СИМУЛЯЦИЯ ЗАВЕРШЕНА ЗА: {sw.ElapsedMilliseconds} мс");
-            Console.WriteLine("=======================================================\n");
+            ConsoleLogger.Log($"\n=======================================================", ConsoleColor.White);
+            ConsoleLogger.Log($"  СИМУЛЯЦИЯ ЗАВЕРШЕНА ЗА: {sw.ElapsedMilliseconds} мс", ConsoleColor.White);
+            ConsoleLogger.Log("=======================================================\n", ConsoleColor.White);
         }
     }
 }

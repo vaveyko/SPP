@@ -4,7 +4,7 @@ using System.Diagnostics;
 using System.Reflection;
 using test_run;
 using ThreadPool;
-
+using System.Linq;
 
 namespace test_runner
 {
@@ -16,6 +16,7 @@ namespace test_runner
         public MethodInfo FinishMethod { get; set; }
         public TestMethodAttribute Config { get; set; }
     }
+
     class Program
     {
         private static object consoleLock = new object();
@@ -28,6 +29,11 @@ namespace test_runner
         {
             Console.WriteLine("=== ЗАПУСК ЛАБОРАТОРНОЙ РАБОТЫ ===\n");
 
+            Func<MethodInfo, bool> testFilter = method =>
+            {
+                return true;
+                //return method.GetCustomAttribute<CategoryAttribute>()?.Name == "Critical";
+            };
 
             Assembly assembly = Assembly.LoadFrom("application_test");
             Type[] allTypes = assembly.GetTypes();
@@ -57,8 +63,11 @@ namespace test_runner
                     var testAttr = m.GetCustomAttribute<TestMethodAttribute>();
                     var sharedAttr = m.GetCustomAttribute<SharedContextAttribute>();
 
-                    if (testAttr != null)
+                    // Сбор обычных тестов
+                    if (testAttr != null && sharedAttr == null)
                     {
+                        if (!testFilter(m)) continue; // Если фильтр вернул false, пропускаем тест
+
                         regularTests.Add(new TestWorkItem
                         {
                             Method = m,
@@ -70,10 +79,12 @@ namespace test_runner
                     }
                 }
 
-                // Shared Context
                 var typeShared = methods
                     .Where(m => m.GetCustomAttribute<SharedContextAttribute>() != null)
-                    .GroupBy(m => m.GetCustomAttribute<SharedContextAttribute>().ContextId);
+                    .GroupBy(m => m.GetCustomAttribute<SharedContextAttribute>().ContextId)
+                    // Берем группу тестов целиком, если хотябы один ее шаг прошел наш фильтр
+                    .Where(group => group.Any(m => testFilter(m)));
+
                 sharedGroups.AddRange(typeShared);
             }
 
@@ -93,16 +104,19 @@ namespace test_runner
                 allTasks.Add(() => ExecuteSharedGroup(currentGroup));
             }
 
+            // Выводим инфу, сколько тестов прошло фильтрацию
+            ConsoleLogger.Log($"\n[ФИЛЬТР] Прошло фильтрацию: обычных тестов - {regularTests.Count}, групп контекста - {sharedGroups.Count}", ConsoleColor.Magenta);
+
             using (var customPool = new CustomThreadPool(
                 minThreads: _minPool,
                 maxThreads: _maxPool,
                 idleTimeout: TimeSpan.FromSeconds(_waitTime),
                 executionTimeout: TimeSpan.FromSeconds(_execTime)))
             {
-                var simulator = new LoadSimulator(customPool, allTasks, 50);
+                var simulator = new LoadSimulator(customPool, allTasks, 100);
                 simulator.Run();
             }
-                sw.Stop();
+            sw.Stop();
 
             Console.WriteLine($"\n========================================");
             Console.WriteLine($"Все тесты завершены за: {sw.ElapsedMilliseconds} мс");
@@ -113,13 +127,50 @@ namespace test_runner
 
         private static void ExecuteTest(TestWorkItem work)
         {
+            // Ищем старые атрибуты [Parameter]
             var paramAttrs = work.Method.GetCustomAttributes<ParameterAttribute>().ToArray();
+            var allParamsList = new List<object[]>();
 
-            object[][] allParams = paramAttrs.Length > 0
-                ? paramAttrs.Select(p => p.parameters).ToArray()
-                : new object[][] { null };
+            if (paramAttrs.Length > 0)
+            {
+                allParamsList.AddRange(paramAttrs.Select(p => p.parameters));
+            }
 
-            foreach (var parameters in allParams)
+            // Ищем новый атрибут [ValueSource]
+            var sourceAttr = work.Method.GetCustomAttribute<ValueSourceAttribute>();
+            if (sourceAttr != null)
+            {
+                var sourceMethod = work.ClassType.GetMethod(sourceAttr.MethodName, BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+
+                if (sourceMethod != null)
+                {
+                    // Вызываем этот метод итреатор
+                    var generatedData = sourceMethod.Invoke(null, null) as IEnumerable<object[]>;
+
+                    if (generatedData != null)
+                    {
+                        allParamsList.AddRange(generatedData);
+                    }
+                    else
+                    {
+                        ConsoleLogger.LogTestResult(work.ClassType.Name, work.Method.Name, $"ПРОВАЛЕН: Метод {sourceAttr.MethodName} не вернул IEnumerable<object[]>", ConsoleColor.Red);
+                        return;
+                    }
+                }
+                else
+                {
+                    ConsoleLogger.LogTestResult(work.ClassType.Name, work.Method.Name, $"ПРОВАЛЕН: Метод-источник {sourceAttr.MethodName} не найден!", ConsoleColor.Red);
+                    return;
+                }
+            }
+
+            // Если нет ни [Parameter], ни [ValueSource], создаем пустышку
+            if (allParamsList.Count == 0)
+            {
+                allParamsList.Add(null);
+            }
+
+            foreach (var parameters in allParamsList)
             {
                 object instance = Activator.CreateInstance(work.ClassType);
                 var timeoutAttr = work.Method.GetCustomAttribute<TimeoutAttribute>();
@@ -156,13 +207,12 @@ namespace test_runner
                     {
                         Thread testThread = new Thread(runTestLogic)
                         {
-                            IsBackground = true, 
+                            IsBackground = true,
                             Name = $"TimeoutWorker_{work.Method.Name}"
                         };
 
                         testThread.Start();
 
-                        // Текущий рабочий поток нашего пула ждет
                         bool finishedInTime = testThread.Join(timeoutAttr.Milliseconds);
 
                         if (!finishedInTime)
@@ -170,27 +220,28 @@ namespace test_runner
                             throw new Exception($"TimeOut: {timeoutAttr.Milliseconds}мс");
                         }
 
-                        // Если внутри упал Assert
                         if (testException != null) throw testException;
                     }
                     else
                     {
-                        // тайм-аута нет
                         runTestLogic.Invoke();
-
                         if (testException != null) throw testException;
                     }
 
                     work.FinishMethod?.Invoke(instance, null);
-                    LogResult(work.ClassType.Name, work.Method.Name, "ПРОЙДЕН", ConsoleColor.Green);
+
+                    // добавим параметры к имени метода в консоли
+                    string paramString = parameters != null ? $" ({string.Join(", ", parameters)})" : "";
+                    ConsoleLogger.LogTestResult(work.ClassType.Name, work.Method.Name + paramString, "ПРОЙДЕН", ConsoleColor.Green);
                 }
                 catch (Exception ex)
                 {
+                    string paramString = parameters != null ? $" ({string.Join(", ", parameters)})" : "";
                     var msg = (ex is TargetInvocationException tie && tie.InnerException != null)
                                 ? tie.InnerException.Message
                                 : ex.Message;
 
-                    LogResult(work.ClassType.Name, work.Method.Name, $"ПРОВАЛЕН: {msg}", ConsoleColor.Red);
+                    ConsoleLogger.LogTestResult(work.ClassType.Name, work.Method.Name + paramString, $"ПРОВАЛЕН: {msg}", ConsoleColor.Red);
                 }
             }
         }
@@ -269,7 +320,7 @@ namespace test_runner
 
                         if (testException != null) throw testException;
 
-                        LogResult($"Context-{group.Key}", method.Name, "OK", ConsoleColor.Cyan);
+                        ConsoleLogger.LogTestResult($"Context-{group.Key}", method.Name, "OK", ConsoleColor.Cyan);
                     }
                     catch (Exception ex)
                     {
@@ -277,7 +328,7 @@ namespace test_runner
                                     ? tie.InnerException.Message
                                     : ex.Message;
 
-                        LogResult($"Context-{group.Key}", method.Name, $"ПРОВАЛЕН: {msg}", ConsoleColor.Red);
+                        ConsoleLogger.LogTestResult($"Context-{group.Key}", method.Name, $"ПРОВАЛЕН: {msg}", ConsoleColor.Red);
 
                         break;
                     }
@@ -291,19 +342,7 @@ namespace test_runner
                             ? tie.InnerException.Message
                             : ex.Message;
 
-                LogResult($"Context-{group.Key}", "Инициализация", $"ОШИБКА: {msg}", ConsoleColor.Red);
-            }
-        }
-
-        private static void LogResult(string className, string methodName, string status, ConsoleColor color)
-        {
-            lock (consoleLock)
-            {
-                Console.Write($"[{Thread.CurrentThread.ManagedThreadId}] ");
-                Console.Write($"{className.PadRight(20)} | {methodName.PadRight(25)} : ");
-                Console.ForegroundColor = color;
-                Console.WriteLine(status);
-                Console.ResetColor();
+                ConsoleLogger.LogTestResult($"Context-{group.Key}", "Инициализация", $"ОШИБКА: {msg}", ConsoleColor.Red);
             }
         }
     }
