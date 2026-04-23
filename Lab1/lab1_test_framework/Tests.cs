@@ -104,7 +104,7 @@ namespace lab1_test_framework
             // Если тест прошел успешно - ничего не делаем
             if (result) return;
 
-            string errorMessage = "Провалена проверка выражения: ";
+            string errorMessage = "\nПровалена проверка выражения: ";
 
             if (expression.Body is BinaryExpression binaryExpr)
             {

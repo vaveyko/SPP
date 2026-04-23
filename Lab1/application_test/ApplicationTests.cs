@@ -128,8 +128,8 @@ namespace application_test
             var breakfast = new Dictionary<string, double> { ["яйца"] = 200 };
             int currentMeal = app.CalculateTotalCalories(breakfast);
 
-            Tests.Check(() => currentMeal == 310);
-            Tests.Check(() => app.totalCalories == 310);
+            Tests.Check(() => currentMeal == 111);
+            Tests.Check(() => app.totalCalories == 111);
         }
 
         [SharedContext(contextId: 2, priority: 2)]

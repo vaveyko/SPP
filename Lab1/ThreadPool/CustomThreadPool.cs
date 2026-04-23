@@ -6,7 +6,6 @@ namespace ThreadPool
 {
     public static class ConsoleLogger
     {
-        // ЕДИНСТВЕННЫЙ ЗАМОК ДЛЯ ВСЕЙ ПРОГРАММЫ
         private static readonly object _globalLock = new object();
 
         public static void Log(string message, ConsoleColor color = ConsoleColor.White)
@@ -31,7 +30,8 @@ namespace ThreadPool
             }
         }
     }
-    // ============ ДОБАВЛЕНО: Классы аргументов для событий ============
+
+
     public class ThreadEventArgs : EventArgs
     {
         public string ThreadName { get; }
@@ -43,16 +43,13 @@ namespace ThreadPool
             ManagedThreadId = id;
         }
     }
-    // ==================================================================
 
     public class CustomThreadPool : IDisposable
     {
-        // ============ ДОБАВЛЕНО: Объявление событий ============
         public event EventHandler<ThreadEventArgs> ThreadCreated;
         public event EventHandler<ThreadEventArgs> ThreadDestroyed;
         public event EventHandler<ThreadEventArgs> TaskStarted;
         public event EventHandler<ThreadEventArgs> TaskCompleted;
-        // =======================================================
 
         private readonly Queue<Action> _taskQueue = new Queue<Action>();
         private readonly List<Thread> _workers = new List<Thread>();
@@ -121,10 +118,7 @@ namespace ThreadPool
             _workers.Add(worker);
             _activeThreadsCount++;
 
-            // ============ ДОБАВЛЕНО: Вызов события ============
-            // Конструкция ?.Invoke безопасна, если на событие никто не подписан
             ThreadCreated?.Invoke(this, new ThreadEventArgs(worker.Name, worker.ManagedThreadId));
-            // ==================================================
 
             worker.Start();
         }
@@ -178,15 +172,11 @@ namespace ThreadPool
 
                     try
                     {
-                        // ============ ДОБАВЛЕНО: Вызов события ============
                         TaskStarted?.Invoke(this, new ThreadEventArgs(Thread.CurrentThread.Name, Thread.CurrentThread.ManagedThreadId));
-                        // ==================================================
 
                         task.Invoke();
 
-                        // ============ ДОБАВЛЕНО: Вызов события ============
                         TaskCompleted?.Invoke(this, new ThreadEventArgs(Thread.CurrentThread.Name, Thread.CurrentThread.ManagedThreadId));
-                        // ==================================================
                     }
                     catch (Exception ex)
                     {
@@ -217,9 +207,7 @@ namespace ThreadPool
                     _workers.Remove(Thread.CurrentThread);
                     _activeThreadsCount--;
 
-                    // ============ ДОБАВЛЕНО: Вызов события ============
                     ThreadDestroyed?.Invoke(this, new ThreadEventArgs(Thread.CurrentThread.Name, Thread.CurrentThread.ManagedThreadId));
-                    // ==================================================
                 }
             }
         }
@@ -258,9 +246,7 @@ namespace ThreadPool
                             _workers.Remove(th);
                             _activeThreadsCount--;
 
-                            // ============ ДОБАВЛЕНО: Вызов события для зависшего ============
                             ThreadDestroyed?.Invoke(this, new ThreadEventArgs(th.Name + " (ЗАВИС)", th.ManagedThreadId));
-                            // ================================================================
 
                             CreateWorker();
                         }

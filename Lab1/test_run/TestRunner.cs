@@ -113,7 +113,7 @@ namespace test_runner
                 idleTimeout: TimeSpan.FromSeconds(_waitTime),
                 executionTimeout: TimeSpan.FromSeconds(_execTime)))
             {
-                var simulator = new LoadSimulator(customPool, allTasks, 100);
+                var simulator = new LoadSimulator(customPool, allTasks, 50);
                 simulator.Run();
             }
             sw.Stop();
@@ -127,7 +127,7 @@ namespace test_runner
 
         private static void ExecuteTest(TestWorkItem work)
         {
-            // Ищем старые атрибуты [Parameter]
+            // [Parameter]
             var paramAttrs = work.Method.GetCustomAttributes<ParameterAttribute>().ToArray();
             var allParamsList = new List<object[]>();
 
@@ -136,7 +136,7 @@ namespace test_runner
                 allParamsList.AddRange(paramAttrs.Select(p => p.parameters));
             }
 
-            // Ищем новый атрибут [ValueSource]
+            // [ValueSource]
             var sourceAttr = work.Method.GetCustomAttribute<ValueSourceAttribute>();
             if (sourceAttr != null)
             {
@@ -144,7 +144,7 @@ namespace test_runner
 
                 if (sourceMethod != null)
                 {
-                    // Вызываем этот метод итреатор
+                    // вызываем итреатор
                     var generatedData = sourceMethod.Invoke(null, null) as IEnumerable<object[]>;
 
                     if (generatedData != null)
@@ -164,7 +164,7 @@ namespace test_runner
                 }
             }
 
-            // Если нет ни [Parameter], ни [ValueSource], создаем пустышку
+            // нет ни [Parameter], ни [ValueSource]
             if (allParamsList.Count == 0)
             {
                 allParamsList.Add(null);
@@ -187,7 +187,7 @@ namespace test_runner
                         {
                             var result = work.Method.Invoke(instance, parameters);
 
-                            // Если тест был написан как async Task, ждем его
+                            // async Task, ждем
                             if (result is Task taskResult)
                             {
                                 taskResult.GetAwaiter().GetResult();

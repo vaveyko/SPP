@@ -94,6 +94,7 @@ namespace test_run
                 if (i < loadQueue.Count) _pool.Enqueue(WrapTask(loadQueue[i]));
                 Thread.Sleep(50);
             }
+            Thread.Sleep(5000);
 
             countdown.Wait();
             sw.Stop();
